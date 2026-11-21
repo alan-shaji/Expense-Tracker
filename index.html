@@ -72,7 +72,7 @@ const RULES=[
 [/restaurant|cafe|coffee|starbucks|mcdonald|burger|pizza|kfc|subway|doordash|ubereats|uber eats|deliveroo|swiggy|zomato|dining|bar /i,"Food & Dining"],
 [/uber|lyft|taxi|fuel|gas station|shell|bp |chevron|parking|metro|transit|train|toll/i,"Transport"],
 [/amazon|ebay|target|ikea|zara|h&m|nike|apple store|best buy|store|shop/i,"Shopping"],
-[/electric|water|internet|broadband|insurance|rent|mortgage|phone|mobile|utility|council|tax/i,"Bills & Utilities"],
+[/electric|water|internet|broadband|insurance|rent|mortgage|loan|repayment|car payment|phone|mobile|utility|council|tax/i,"Bills & Utilities"],
 [/netflix|spotify|subscription|prime|disney|hulu|icloud|youtube|adobe|github|openai/i,"Subscriptions"],
 [/pharmacy|doctor|clinic|hospital|dental|health|gym|fitness|cvs|walgreens/i,"Health"],
 [/cinema|movie|steam|playstation|xbox|concert|ticket|game/i,"Entertainment"],
@@ -165,13 +165,15 @@ function App(){
   setBusy(false);
  }
  const upd=(id,p)=>setTx(tx.map(t=>t.id===id?{...t,...p}:t));
- const exp=tx.filter(t=>t.type==="expense"),inc=tx.filter(t=>t.type==="income");
+ const[inFx,setInFx]=useState(true);
+ const all=useMemo(()=>{if(!inFx||!fx.length)return tx;const ms=[...new Set(tx.map(t=>t.date.slice(0,7)))];if(!ms.length)ms.push(new Date().toISOString().slice(0,7));const v=[];ms.forEach(m=>fx.forEach(f=>{const n=f.name.toLowerCase();if(tx.some(t=>t.date.slice(0,7)===m&&t.type===f.type&&t.desc.toLowerCase().includes(n)))return;v.push({id:"fx"+f.id+m,date:m+"-"+String(f.day||1).padStart(2,"0"),desc:f.name,amt:f.freq==="biweekly"?f.amt*26/12:f.amt,type:f.type,cat:f.type==="income"?"Income":guess(f.name,"expense"),fixed:1})}));return tx.concat(v)},[tx,fx,inFx]);
+ const exp=all.filter(t=>t.type==="expense"),inc=all.filter(t=>t.type==="income");
  const spent=exp.reduce((s,t)=>s+t.amt,0),earned=inc.reduce((s,t)=>s+t.amt,0);
- const cats=useMemo(()=>{const m={};exp.forEach(t=>m[t.cat]=(m[t.cat]||0)+t.amt);return Object.entries(m).sort((a,b)=>b[1]-a[1])},[tx]);
- const months=useMemo(()=>{const m={};tx.forEach(t=>{const k=t.date.slice(0,7);m[k]=m[k]||{k,s:0,i:0};t.type==="expense"?m[k].s+=t.amt:m[k].i+=t.amt});return Object.values(m).sort((a,b)=>a.k<b.k?-1:1).slice(-8)},[tx]);
- const rows=tx.filter(t=>!q||(t.desc+t.cat).toLowerCase().includes(q.toLowerCase())).sort((a,b)=>a.date<b.date?1:-1).slice(0,300);
+ const cats=useMemo(()=>{const m={};exp.forEach(t=>m[t.cat]=(m[t.cat]||0)+t.amt);return Object.entries(m).sort((a,b)=>b[1]-a[1])},[all]);
+ const months=useMemo(()=>{const m={};all.forEach(t=>{const k=t.date.slice(0,7);m[k]=m[k]||{k,s:0,i:0};t.type==="expense"?m[k].s+=t.amt:m[k].i+=t.amt});return Object.values(m).sort((a,b)=>a.k<b.k?-1:1).slice(-8)},[all]);
+ const rows=all.filter(t=>!q||(t.desc+t.cat).toLowerCase().includes(q.toLowerCase())).sort((a,b)=>a.date<b.date?1:-1).slice(0,300);
  const addFx=()=>{const a=parseFloat(nf.amt);if(!nf.name||!a)return;setFx([...fx,{id:Math.random().toString(36).slice(2),name:nf.name,amt:Math.abs(a),type:nf.type,freq:nf.freq,day:Math.min(31,Math.max(1,+nf.day||1))}]);setNf({...nf,name:"",amt:"",freq:"monthly"})};
- const PRESETS=[{name:"Rent",type:"expense"},{name:"Utilities",type:"expense"},{name:"Car payment",type:"expense"},{name:"Insurance",type:"expense"},{name:"Bi-weekly pay",type:"income",freq:"biweekly",pay:1}];
+ const PRESETS=[{name:"Rent",type:"expense"},{name:"Utilities",type:"expense"},{name:"Car payment",type:"expense"},{name:"Loan repayment",type:"expense"},{name:"Insurance",type:"expense"},{name:"Bi-weekly pay",type:"income",freq:"biweekly",pay:1}];
  const pick=p=>{setNf({...nf,name:p.name,type:p.type,freq:p.freq||"monthly"});setTimeout(()=>amtRef.current&&amtRef.current.focus(),0)};
  const mo=f=>f.freq==="biweekly"?f.amt*26/12:f.amt;
  const fxInc=fx.filter(f=>f.type==="income").reduce((s,f)=>s+mo(f),0),fxExp=fx.filter(f=>f.type==="expense").reduce((s,f)=>s+mo(f),0),left=fxInc-fxExp;
@@ -181,6 +183,7 @@ function App(){
  const fixedCard=h("div",{className:"card"},h("h2",null,"Fixed income & expenses"),
   h("div",{className:"row"},PRESETS.map(p=>h("button",{key:p.name,className:p.pay?"btn":"btn ghost",onClick:()=>pick(p)},"+ "+p.name))),
   h("p",{className:"sub",style:{marginTop:0}},"Tap a button, enter the amount, then press Add. Bi-weekly pay is counted as 26 paychecks a year, split across 12 months."),
+  h("label",{className:"sub",style:{display:"block",marginBottom:10}},h("input",{type:"checkbox",checked:inFx,onChange:e=>setInFx(e.target.checked)})," Include fixed items in the totals and charts. Months where your statement already has a matching item are skipped, so nothing is counted twice."),
   h("div",{className:"row"},
    h("select",{value:nf.type,"aria-label":"Type",onChange:e=>setNf({...nf,type:e.target.value})},h("option",{value:"expense"},"Fixed expense"),h("option",{value:"income"},"Fixed income")),
    h("select",{value:nf.freq,"aria-label":"How often",onChange:e=>setNf({...nf,freq:e.target.value})},h("option",{value:"monthly"},"Monthly"),h("option",{value:"biweekly"},"Bi-weekly")),
@@ -213,12 +216,12 @@ function App(){
    h("input",{ref:fi,type:"file",accept:"application/pdf,.pdf",multiple:true,hidden:true,onChange:e=>{onFiles(e.target.files);e.target.value=""}})),
   msg&&h("div",{className:"msg"+(msg.e?" err":""),role:"status"},msg.t),
   fixedCard,
-  !tx.length?h("div",{className:"card empty"},"No transactions yet. Upload a statement, or ",h("button",{className:"btn ghost",onClick:sample},"try sample data")):h("div",null,
+  !all.length?h("div",{className:"card empty"},"No transactions yet. Upload a statement, or ",h("button",{className:"btn ghost",onClick:sample},"try sample data")):h("div",null,
    h("div",{className:"stats"},
     h("div",{className:"stat"},h("small",null,"Spent"),h("strong",{style:{color:"var(--ng)"}},fmt(spent))),
     h("div",{className:"stat"},h("small",null,"Income"),h("strong",{style:{color:"var(--ps)"}},fmt(earned))),
     h("div",{className:"stat"},h("small",null,"Net"),h("strong",null,(earned-spent<0?"−":"")+fmt(earned-spent))),
-    h("div",{className:"stat"},h("small",null,"Transactions"),h("strong",null,tx.length))),
+    h("div",{className:"stat"},h("small",null,"Transactions"),h("strong",null,all.length))),
    h("div",{className:"grid"},
     h("div",{className:"card"},h("h2",null,"Spending by category"),cats.length?h(Donut,{data:cats,fmt}):h("div",{className:"empty"},"No expenses")),
     h("div",{className:"card"},h("h2",null,"Income vs. spending by month"),h(Bars,{months,fmt}),
@@ -234,10 +237,10 @@ function App(){
      h("button",{className:"btn",onClick:add},"Add expense")),
     h("div",{className:"tw"},h("table",null,h("thead",null,h("tr",null,h("th",null,"Date"),h("th",null,"Description"),h("th",null,"Category"),h("th",{className:"n"},"Amount"),h("th",null))),
      h("tbody",null,rows.map(t=>h("tr",{key:t.id},
-      h("td",null,t.date),h("td",null,t.desc),
-      h("td",null,h("select",{value:t.cat,"aria-label":"Category",onChange:e=>upd(t.id,{cat:e.target.value})},CATS.map(c=>h("option",{key:c},c)))),
-      h("td",{className:"n"},h("button",{className:t.type==="income"?"pos":"neg",title:"Tap to switch between income and expense",onClick:()=>upd(t.id,t.type==="income"?{type:"expense",cat:guess(t.desc,"expense")}:{type:"income",cat:"Income"})},(t.type==="income"?"+":"−")+fmt(t.amt))),
-      h("td",null,h("button",{className:"x","aria-label":"Delete",onClick:()=>setTx(tx.filter(x=>x.id!==t.id))},"×"))))))),
+      h("td",null,t.date),h("td",null,t.desc+(t.fixed?" (fixed)":"")),
+      h("td",null,h("select",{disabled:!!t.fixed,value:t.cat,"aria-label":"Category",onChange:e=>upd(t.id,{cat:e.target.value})},CATS.map(c=>h("option",{key:c},c)))),
+      h("td",{className:"n"},h("button",{disabled:!!t.fixed,className:t.type==="income"?"pos":"neg",title:"Tap to switch between income and expense",onClick:()=>upd(t.id,t.type==="income"?{type:"expense",cat:guess(t.desc,"expense")}:{type:"income",cat:"Income"})},(t.type==="income"?"+":"−")+fmt(t.amt))),
+      h("td",null,t.fixed?null:h("button",{className:"x","aria-label":"Delete",onClick:()=>setTx(tx.filter(x=>x.id!==t.id))},"×"))))))),
     h("p",{className:"sub"},"Tap an amount to flip it between income and expense."))));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(h(App));
