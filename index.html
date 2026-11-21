@@ -51,6 +51,8 @@ select,input{background:var(--bg);border:1px solid var(--ln);border-radius:6px;p
 .msg{padding:10px 14px;border-radius:8px;background:var(--ac2);margin-bottom:14px;font-size:14px}
 .msg.err{color:var(--ng)}
 .empty{color:var(--mu);text-align:center;padding:24px 0}
+.bar{height:8px;background:var(--ln);border-radius:99px;overflow:hidden;margin:6px 0}
+.bar i{display:block;height:100%;border-radius:99px}
 </style>
 </head>
 <body>
@@ -142,7 +144,10 @@ function App(){
  const[msg,setMsg]=useState(null),[busy,setBusy]=useState(false),[over,setOver]=useState(false),[q,setQ]=useState("");
  const [nw,setNw]=useState({date:new Date().toISOString().slice(0,10),desc:"",amt:""});
  const fi=useRef();
- useEffect(()=>{try{localStorage.setItem("ledgerline",JSON.stringify(tx));localStorage.setItem("ledgerline-cur",cur)}catch(e){}},[tx,cur]);
+ const[fx,setFx]=useState(()=>{try{return JSON.parse(localStorage.getItem("ledgerline-fixed")||"[]")}catch(e){return[]}});
+ const[nf,setNf]=useState({type:"expense",freq:"monthly",name:"",amt:"",day:1});
+ const amtRef=useRef();
+ useEffect(()=>{try{localStorage.setItem("ledgerline",JSON.stringify(tx));localStorage.setItem("ledgerline-cur",cur);localStorage.setItem("ledgerline-fixed",JSON.stringify(fx))}catch(e){}},[tx,cur,fx]);
  const fmt=n=>cur+Math.abs(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
  async function onFiles(files){
   const fs=[...files].filter(f=>/pdf$/i.test(f.type)||/\.pdf$/i.test(f.name));
@@ -165,6 +170,36 @@ function App(){
  const cats=useMemo(()=>{const m={};exp.forEach(t=>m[t.cat]=(m[t.cat]||0)+t.amt);return Object.entries(m).sort((a,b)=>b[1]-a[1])},[tx]);
  const months=useMemo(()=>{const m={};tx.forEach(t=>{const k=t.date.slice(0,7);m[k]=m[k]||{k,s:0,i:0};t.type==="expense"?m[k].s+=t.amt:m[k].i+=t.amt});return Object.values(m).sort((a,b)=>a.k<b.k?-1:1).slice(-8)},[tx]);
  const rows=tx.filter(t=>!q||(t.desc+t.cat).toLowerCase().includes(q.toLowerCase())).sort((a,b)=>a.date<b.date?1:-1).slice(0,300);
+ const addFx=()=>{const a=parseFloat(nf.amt);if(!nf.name||!a)return;setFx([...fx,{id:Math.random().toString(36).slice(2),name:nf.name,amt:Math.abs(a),type:nf.type,freq:nf.freq,day:Math.min(31,Math.max(1,+nf.day||1))}]);setNf({...nf,name:"",amt:"",freq:"monthly"})};
+ const PRESETS=[{name:"Rent",type:"expense"},{name:"Utilities",type:"expense"},{name:"Car payment",type:"expense"},{name:"Insurance",type:"expense"},{name:"Bi-weekly pay",type:"income",freq:"biweekly",pay:1}];
+ const pick=p=>{setNf({...nf,name:p.name,type:p.type,freq:p.freq||"monthly"});setTimeout(()=>amtRef.current&&amtRef.current.focus(),0)};
+ const mo=f=>f.freq==="biweekly"?f.amt*26/12:f.amt;
+ const fxInc=fx.filter(f=>f.type==="income").reduce((s,f)=>s+mo(f),0),fxExp=fx.filter(f=>f.type==="expense").reduce((s,f)=>s+mo(f),0),left=fxInc-fxExp;
+ const lm=months.length?months[months.length-1].k:new Date().toISOString().slice(0,7),fxN=fx.map(f=>f.name.toLowerCase());
+ const mSpent=exp.filter(t=>t.date.slice(0,7)===lm&&!fxN.some(n=>t.desc.toLowerCase().includes(n))).reduce((s,t)=>s+t.amt,0);
+ const pct=left>0?Math.min(100,mSpent/left*100):(mSpent>0?100:0);
+ const fixedCard=h("div",{className:"card"},h("h2",null,"Fixed income & expenses"),
+  h("div",{className:"row"},PRESETS.map(p=>h("button",{key:p.name,className:p.pay?"btn":"btn ghost",onClick:()=>pick(p)},"+ "+p.name))),
+  h("p",{className:"sub",style:{marginTop:0}},"Tap a button, enter the amount, then press Add. Bi-weekly pay is counted as 26 paychecks a year, split across 12 months."),
+  h("div",{className:"row"},
+   h("select",{value:nf.type,"aria-label":"Type",onChange:e=>setNf({...nf,type:e.target.value})},h("option",{value:"expense"},"Fixed expense"),h("option",{value:"income"},"Fixed income")),
+   h("select",{value:nf.freq,"aria-label":"How often",onChange:e=>setNf({...nf,freq:e.target.value})},h("option",{value:"monthly"},"Monthly"),h("option",{value:"biweekly"},"Bi-weekly")),
+   h("input",{placeholder:"Name (Rent, Salary…)","aria-label":"Name",value:nf.name,onChange:e=>setNf({...nf,name:e.target.value})}),
+   h("input",{ref:amtRef,type:"number",step:"0.01",placeholder:nf.freq==="biweekly"?"Per paycheck":"Monthly amount","aria-label":"Amount",style:{width:130},value:nf.amt,onChange:e=>setNf({...nf,amt:e.target.value})}),
+   nf.freq==="biweekly"?null:h("input",{type:"number",min:1,max:31,"aria-label":"Day of month",title:"Day of month",style:{width:70},value:nf.day,onChange:e=>setNf({...nf,day:e.target.value})}),
+   h("button",{className:"btn",onClick:addFx},"Add")),
+  fx.length?h("div",null,
+   h("div",{className:"tw"},h("table",null,h("thead",null,h("tr",null,h("th",null,"Name"),h("th",null,"Type"),h("th",null,"Day"),h("th",{className:"n"},"Amount"),h("th",null))),
+    h("tbody",null,fx.map(f=>h("tr",{key:f.id},h("td",null,f.name),h("td",null,f.type==="income"?"Income":"Expense"),h("td",null,f.freq==="biweekly"?"Every 2 weeks":f.day),
+     h("td",{className:"n",style:{color:f.type==="income"?"var(--ps)":"var(--ng)"}},(f.type==="income"?"+":"−")+fmt(f.amt)+(f.freq==="biweekly"?" / paycheck":" / mo")),
+     h("td",null,h("button",{className:"x","aria-label":"Delete",onClick:()=>setFx(fx.filter(x=>x.id!==f.id))},"×"))))))),
+   h("div",{className:"stats",style:{marginTop:12}},
+    h("div",{className:"stat"},h("small",null,"Fixed income"),h("strong",{style:{color:"var(--ps)"}},fmt(fxInc))),
+    h("div",{className:"stat"},h("small",null,"Fixed expenses"),h("strong",{style:{color:"var(--ng)"}},fmt(fxExp))),
+    h("div",{className:"stat"},h("small",null,"Left to spend each month"),h("strong",null,(left<0?"−":"")+fmt(left)))),
+   tx.length?h("div",null,h("div",{className:"bar"},h("i",{style:{width:pct+"%",background:pct>90?"var(--ng)":"var(--ac)"}})),
+    h("p",{className:"sub"},"Spent "+fmt(mSpent)+" of "+fmt(Math.max(left,0))+" in "+lm+" (statement spending, not counting items that match a fixed name).")):null
+  ):h("p",{className:"sub"},"Add your salary and recurring bills (rent, loan, insurance) once. They’re used to work out what’s left to spend each month."));
  const sample=()=>{const d=new Date(),r=[];const items=[["Salary",2800,"income"],["Tesco Groceries",64.2],["Netflix",15.99],["Uber Trip",18.5],["Starbucks Coffee",6.4],["Electric Bill",92],["Amazon Purchase",47.99],["Pharmacy",21.3],["Cinema Tickets",24],["Shell Fuel",55]];
   for(let m=0;m<3;m++)items.forEach((it,k)=>{const dt=new Date(d.getFullYear(),d.getMonth()-m,Math.min(27,k*2+1));r.push({id:Math.random().toString(36).slice(2),date:dt.toISOString().slice(0,10),desc:it[0],amt:it[1]*(1+(m*7+k)%5/20),type:it[2]||"expense",cat:guess(it[0],it[2]||"expense")})});
   setTx(tx.concat(r))};
@@ -177,6 +212,7 @@ function App(){
    h("b",null,busy?"Reading your statement…":"Upload a statement PDF"),h("span",null,"Drop it here or tap to choose. You can add several months."),
    h("input",{ref:fi,type:"file",accept:"application/pdf,.pdf",multiple:true,hidden:true,onChange:e=>{onFiles(e.target.files);e.target.value=""}})),
   msg&&h("div",{className:"msg"+(msg.e?" err":""),role:"status"},msg.t),
+  fixedCard,
   !tx.length?h("div",{className:"card empty"},"No transactions yet. Upload a statement, or ",h("button",{className:"btn ghost",onClick:sample},"try sample data")):h("div",null,
    h("div",{className:"stats"},
     h("div",{className:"stat"},h("small",null,"Spent"),h("strong",{style:{color:"var(--ng)"}},fmt(spent))),
